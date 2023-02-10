@@ -1,0 +1,140 @@
+---
+title: Kubnernetes Probe
+---
+
+파드 라이프 사이클
+https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/
+
+* kubelet
+  + 오브젝트 생성 관리
+  + 파드/파드 내 컨테이너/컨테이너 내 애플리케이션 정상 작동 여부 확인
+
+컨테이너 재시작 정책
+모든 컨테이너는 컨테이너의 오류 발생 시 재시작을 하기 위한 재시작 정책을 가지고 있다.
+
+* .spec.restartPolicy 재시작 정책
+  + Always : (기본값) 종료/실패 시 항상 재시작
+  + Onfailure : 실패 시 재시작(정상 종료 시 재시작하지 않음)
+  + Never : 재시작 하지 않음
+
+https://docs.okd.io/3.9/architecture/core_concepts/pods_and_services.html
+
+헬스 체크란?
++ 쿠버네티스 파드가 정상 작동하는지 확인하는 기능
++ 파드 내부 컨테이너에서 실행 중인 프로세스 동작에 대한 헬스 체크 default 
++ 이상 종료된 경우 파드에 설정된 spec.restartPolicy에 따라 파드를 재시작
+
+---
+지수 백오프 지연 시간
+파드의 컨테이너 재시작은 지연시간을 가지고 진행된다.
+
+10분 동안 이상 없이 동작하면 지수 백오프 시간을 초기화한다.
+
+파드(Failed) - 컨테이너(Terminated) - restartPolicy(Always/OnFailure) - restart
+
+정상적으로 동작하게 하기 위해서 재시작을 하는 건데, 정상적으로 돌아올 틈도 없이
+바로 재시작한다면 무한히 컨테이너 동작을 실패하게 된다.
+
+
+https://stackoverflow.com/questions/51639968/exponential-backoff-in-kubernetes
+https://stackoverflow.com/questions/40530946/what-is-the-difference-between-always-and-on-failure-for-kubernetes-restart-poli
+
+---
+#### 컨테이너 프로브
+컨테이너 프로브는 컨테이너의 애플리케이션이 정상 동작하는지 체크하는 오브젝트이다.
+
+
+* 프로브 핸들러의 3가지 메커니즘
+  1. HTTPGetAction
+    + 특정 경로에 HTTP GET 요청  
+    + 'HTTP 응답 코드'가 2XX 또는 3XX 인지 확인함
+    + 웹 서버가 요청에 대한 응답을 할 때 
+    + 그렇다면 HTTP 프로토콜을 사용하는 앱의 컨테이너에 적용할 수 있겠네?
+      + 1XX : 정보 알려줌
+      + 2XX : 성공(205: 요청한 리소스 정상 응답)
+      + 3XX : 리다이엑션
+      + 4XX : 클라이언트측의 오류
+      + 5XX : 서버측의 오류
+    + 2XX번은 당연히 OK인데, 3XX은 경로가 변경되었을 경우(전화번호 바뀌면 자동으로 변경)
+
+  2. TCPSocketAction
+    + 특정 TCP 포트 연결
+    + '포트가 활성화'되어 있는지 확인
+    + (논리) 소켓 통신 장애 -> 컨테이너 비정상 작동
+
+  3. ExecAction
+    + 컨테이너 내의 지정된 바이너리를 실행
+    + '명령의 종료 코드가 0'인지 확인
+    + HTTP GET할 수 없는 컨테이너 ex) DB 컨테이너, ...
+    + 
+
+예를 들어 DB 서버은 HTTPGetAction 메커니즘을 사용할 수 없다. 이럴 경우 ExecAction 형태로
+DB 서버에 접속하는 DB 클라이언트가 DB 목록을 잘 받아오는지, 로그인이 되는지 등의 명령을 작동시켜
+판단할 수 있다. 이 방법 외에도 다양한 방법이 있다.
+
+포트가 개방되어 있지 않은 컨테이너가 의미가 있나요?
+ExecAction
+
+프로브 핸들러 - 프로브 세 가지 - 
+
+* 프로브 종류
+  1. livenessProbe - "일하는 ?"
+     + 컨테이너가 동작 중인지 확인
+     + 진단에 실패하면 재시작 정책을 적용
+     + livenessProbe를 선언하지 않으면, 기본 상태는 Success
+  
+  2. readinessProbe - "준비 됐니?"
+     + 컨테이너가 요청을 처리할 준비가 되었는지 확인
+     + 진단에 실패하면 엔드포인트 컨트롤러는 파드의 IP 주소를 엔드포인트에서 제거
+     + readinessProbe를 선언하지 않으면, 기본 상태는 Success
+     + 컨테이너가 생성 후 초기화까지하여 애플리케이션이 정상적으로 서비스해줄 수 있는 상태 여부 진단
+
+  3. startupProbe - "생성되었니?"
+     + 컨테이너 내의 '애플리케이션이 시작'되었는지 확인
+     + startupProbe가 선언되었을 경우, 진단을 통과하기 전까지 다른 프로브를 활성화하지 않음
+
+  4. grpcProbe
+     + https://kubernetes.io/blog/2018/10/01/health-checking-grpc-servers-on-kubernetes/
+     + https://kubernetes.io/blog/2022/05/13/grpc-probes-now-in-beta/
+
+기본 상태가 Success == 프로브로 검증하지 않았는데도 그냥 Success로 치는 것이다.
+
+이걸 한다고 100% 애플리케이션이 작동하는 것은 아니지만 트러블슈팅할 때 유리함을 가져갈 수 있다.
+
+파드 내 세 가지 프로브가 기본적으로 전부 포함되어 있나요?
+기본 상태가 Success라는 뜻은 프로브를 통해 진단을 통과했다는 뜻이라면
+파드 내 livenessProbe와 readinessProbe는 포함이 된건가요?
+
+readinessProbe, startupProbe는 검증 타이밍에만 영향을 주지만 livenessProbe의 검증 주기가 짧다면
+퍼포먼스에 영향을 줄 수도 있다.
+
+적용을 안해도 되고, 적용할 때도 한 개 이상 ~ 3개 모두 적용이 가능하다.
+
+---
+
+
+
+
+
+
+---
+세 가지 헬스 방법(Liveness/Readiness/Startup Probe)
+
+공통점
++ 설정 가능한 내용이 동일하다.
++ spec.container에 설정한다.
+
+차이점
++ 역할이 다르다.
+
+* 헬스 체크 방법 3 가지
+  1. Liveness Probe : 파드 내부의 컨테이너가 정상 동작 중인지 확인 / 컨테이너 재기동  
+  2. Readiness Probe : 파드가 요청을 받아들일 수 있는지 확인 / 트래픽 차단(파드 재기동 X)
+  3. Startup Probe : 파드의 첫 번째 기동이 완료되었는지 확인 / 다른 Probe 실행을 시작하지 않음
+
+##### Liveness Probe
+  + 파드 내부의 컨테이너가 정상적으로 동작 중인지 확인
+
+##### Readiness Probe
+
+##### Startup Probe

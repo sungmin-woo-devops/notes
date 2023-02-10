@@ -1,0 +1,57 @@
+* 깃허브 원격 저장소(remote repo)에 있는 프로젝트를 로컬 저장소로 가져오는 방법 3가지
+1. git push
+2. git fetch
+3. git clone
+
+#### 1. git pull
+원격 저장소에 있는 변경사항들을 로컬저장소로 가져와 합치는 명령어
+"변경 사항을 가져옴과 동시에 자동으로 병합이 되기 때문에 무엇이 추가되고 병합되었는지 확인이 안됨"
+
+$ git pull
+
+#### 2. git fetch
+원격저장소에 있는 변경사항들을 로컬저장소에 가져오기 전에 변경내용 조회
+ex) 내가 작업한 파일을 github에 올리고 퇴근, 다음날 누군가 내 파일을 수정했는지 조회
+    즉, 로컬저장소에 변경한 내용은 반영하지 않고 변경 내역만 확인
+$ git fetch REMOTE_REPO
+$ git fetch origin
+
+fetch를 하고 나면 해당 브랜티로 checkout을 해줘야 한다. 
+아래의 명령어를 치면 fetch를 확인할 수 있는 브랜치 내역들이 나온다.
+$ git branch -r
+$ git checkout origin/main
+
+txt 파일을 열어보면 원격 저장소에서 수정한 내용들이 추가되어 있다.
+fetch로 가져온 내용을 로컬디렉터리에 저장 X / 브랜치로 checkout하여 변경 내역만 확인
+
+
+#### 3. git clone 
+clone이라는 단어처럼 언격 저장소의 내용을 새로운 폴더에 그대로 복사하는 것
+git 리포지터리로는 작용하지 않는다(?)
+
+
+$ git remote -v        //  연결된 저잘소 확인
+
+$ git pull REMOTE_REPO REMOTE_REPO_BRANCH
+$ git pull origin main //  pull로 변경사항 가져옴과 동시에 병합 진행
+
+
+---
+
+#### git remote
++ 원격 저장소를 관리할 수 있는 명령어
++ 
+
+
+둘 다 원격저장소의 내용을 가져오는데 사용
+fetch : 가져온 변경내용이 로컬에 영향 X / 병랍 전 확인 용도로 사용
+pull : 가져온 변경사항 로컬에 병합 / 로컬 작업과 pull한 변경사항 간 충돌이 발생할 수 있음
+
+로컬이 깨끗한 상태에서 fetch 후 pull을 하도록 하자.
+
+
+
+
+
+
+
