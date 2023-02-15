@@ -1,0 +1,345 @@
+쿠버네티스 외부 클라이언트들이 쿠버네티스 클러스터 내 애플리케이션에 접속
+
+물리적인 서버에 직접 접속하는 것은 아님(파드 내 앱에 접속)
+-> 따라서 일반적으로 서버에 서비스를 구축하고 이에 접근하는 방식과는 다름
+
+---
+
+5.2 서비스 탐색(discovery)
+클러스터 내에서 클라이언트가 요청한 서비스를 제공하는
+애플리케이션을 탐색하여야 한다.
+
+* 서비스 탐색 4가지
+  1. 환경 변수
+  2. DNS
+  3. 노드 로컬 DNS 캐시
+  4. FQDN 서비스 탐색 
+
+##### 1. 환경변수를 이용한 서비스 탐색
+쿱 클러스터는 파드 시작될 때 현재 클러스터 내 존재하는 서비스를 파드 내의 쉘 환경변수로 설정한다.
+쉘이 없는 이미지로 만든 Pod는 환경 변수를 설정하지 못한다.
+
+kubectl run nettool -it --image=ghcr.io/c1t1d0s7/network-multitool --rm bash
+
+일부 도메인부터 FQDN으로전체를 전부 명시해서도 사용이 가능하다.
+SERVICE_NAME.NAMESPACE,OBJECT.CLUSTER_DOMAIN
+
+host example-svc
+host example-svc.default
+host.example-svc.cluster.local
+host.example-svc.default.svc.cluster.local
+
+host example-svc-pod
+host example-svc-pod.default
+host example-svc-pod.default.svc
+host example-svc.pod.default.svc.cluster.local
+
+
+
+##### 2. DNS를 이용한 서비스 탐색
+
+CoreDNS가 쿠버네티스 클러스터 상에서 파드 간 DNS 서비스(IP to DN)를 지원하고 있다.
+
+k get all -n kube-system -l k8s-app=kube-dns
+vagrant@kube-control1:~/cccr/work/20230215$ k get all -n kube-system -l k8s-app=kube-dns
+NAME                           READY   STATUS    RESTARTS      AGE
+pod/coredns-78fcd69978-l5klr   1/1     Running   8 (16h ago)   6d
+pod/coredns-78fcd69978-vbnmc   1/1     Running   8 (16h ago)   6d
+
+NAME               TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)                  AGE
+service/kube-dns   ClusterIP   10.96.0.10   <none>        53/UDP,53/TCP,9153/TCP   6d
+
+NAME                      READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/coredns   2/2     2            2           6d
+
+NAME                                 DESIRED   CURRENT   READY   AGE
+replicaset.apps/coredns-78fcd69978   2         2         2       6d
+
+##### 3. 노르 로컬 DNS 캐시
+##### 4. FQDN을 이용한 서비스 탐색
+
+
+---
+
+5.3 클러스터 외부 서비스
+
+서비스(svc) 오브젝트를 통해서 애플리케이션에 접속하는 진입점(access point)를 만들어줬다.
+이때까지 클러스터 내부에서 특정 파드에 접근할 떄 사용했던 svc 오브젝트는 ClusterIP였다.
+그렇다면 외부에서 클러스터로 접근하려면 어떤 svc 오브젝트를 사용해야 할까?
+
+* 서비스의 종류
+  + ClusterIP
+    : Kubernetes cluster 내부에서 접근 가능한 서비스 오브젝트
+    + ClusterIP 주소를 가짐(=내부 접근)
+
+  + NodePort
+    : Kubernetes cluster 내부/외부에서 모두 접근 가능한 svc
+      (ClusterIP + NodePort)
+    + Kubernetes Cluster의 모든 노드에 동일한 NodePort를 개방함
+    + Kubernetes Cluster 외부에서 접근 시 Node의 IP 주소와 NodePort를 통해 접근 
+    + Kubernetes Cluster 외부에서 원하는 서비스 Pod가 없는 노드에 요청을 했을 시에도
+      해당 트래픽을 kube-proxy에 의해 해당 서비스 Pod가 존재하는 노드로 전달한다.
+
+  + LoadBalancer
+    : Kubernetes Cluster 내부와 외부에서 모두 접근 가능한 서비스 오브젝트 종류
+      (ClusterIP + NodePort + LoadBalancer)
+    + LoadBalancer 타입의 서비스 오브젝트는 일반적으로 클라우드 환경에서 사용할 수 있음
+      
+  + ExternalName
+    : Kubernetes Cluster 내부->외부 서비스 접근 시 사용
+    + 외부의 특정 FQDN에 대한 CNAME을 제공
+    + 파드가 CNAME을 이요여해 특정 FQDN과 통신
+
+  + Headless Service
+    : 나중에 
+
+cf) 인그레스는 Ingress 오브젝트가 별도로 존재한다.
+
+
+ClusterIP는 너무 당연하게도 내부에서만 사용할 수 있다.
+
+NodePort 서비스는 각 노드들의 IP:Port를 통해 노드로 접근할 수 있고,
+여기 패킷이 도달하면 서비스에 따라서 노드 내에 있는 해당하는 Pod의 ClusterIP:Port로 전달
+
+30000 ~ 32767까지의 포트를 사용
+
+PORT(S) 필드 설명: Port:NodePort
+외부에서 31111 노드 포트로 접근
+
+vagrant@kube-control1:~/cccr/work/20230215$ k get svc
+NAME           TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)        AGE
+example-svc    ClusterIP   10.106.115.87    <none>        8080/TCP       159m
+kubernetes     ClusterIP   10.96.0.1        <none>        443/TCP        6d2h
+myapp-svc-np   NodePort    10.101.100.127   <none>        80:31111/TCP   3s
+
+vagrant@kube-control1:~/cccr/work/20230215$ k describe svc myapp-svc-np
+Name:                     myapp-svc-np
+Namespace:                default
+Labels:                   <none>
+Annotations:              <none>
+Selector:                 app=myapp-rs
+Type:                     NodePort
+IP Family Policy:         SingleStack
+IP Families:              IPv4
+IP:                       10.109.255.165
+IPs:                      10.109.255.165
+Port:                     <unset>  80/TCP
+TargetPort:               8080/TCP
+NodePort:                 <unset>  31111/TCP
+Endpoints:                192.168.119.182:8080,192.168.233.247:8080,192.168.9.108:8080
+Session Affinity:         None
+External Traffic Policy:  Cluster
+Events:                   <none>
+
+
+svc에 연결되는 대상 주소(pod 주소)
+
+
+로드 밸런서(Load Balancer, LB)
+
+
+클러스터에 클라이언트가 애플리케이션에 요청을 했을 때 
+NodePort를 사용한다면 NodeIP:NodePort로 지정하여 접속해야 한다.
+
+NodePort 사용 시 문제점 2가지
+1. Node의 IP 노출 -> 해커들이 Node 바록 공격 가능
+2. 불필요한 포트 개방 -> 서비스 Pod가 없는 노드들도 서비스가 생겨남에 따라 포트가 계속 개방되어야 함
+
+로드밸런서 svc 오브젝트를 사용한다면 외부로 노드의 IP, Port를 노출시키지 않아도 된다.
+
+
+ExternalName
+- Kubernetes Cluster 내부에서 외부의 서비스를 접근할 때 사용하는 
+  서비스 오브젝트 종류
+- CNAME , API 서버의 주소에 대해서 CNAME을 반환하여 편리한 주소로 접근 가능하게 함
+
+Headless Service
+
+---
+
+### 5.4 인그레스
+
+* 쿠버네티스 외부에 노출시켜야 할 서비스가 많다면 어떻게 해야할까?
+  + NodePort: 각 서비스마다 전용의 노드포트 할당(-)
+  + LoadBalancer: 외부 LB가 각 서비스마다 프로비저닝(-)
+  + Ingress: HTTP 요청의 주소 구분 -> 하나의 인그레스 리소스 이용(+)
+
+클라우드 환경에서는 SercurityGroup이라는 방화벽 정책으로 애플리케이션에 접근 허용을 해줘야 한다.
+
+애플리케이션마다 각각 개별적으로 로드밸런서를 비용을 지불해야 하는가?
+각 애플리케이션에 대한 로드밸런싱은 어떻게 관리를 해야 하는가?
+
+
+그렇다면 인그레스를 다중 로드밸런싱을 해주는데, 로드밸런싱의 상위호환이라고 보면 될까요?
+
+
+클라이언트 -> 인그레스 -> 라우팅 규칙 -> 서비스 -> 파드
+
+-> foo.example.com -> 서비스A -> 파드
+-> bar.example.com -> 서비스B -> 파드
+-> www.example.com/web1 -> 서비스C -> 파드
+-> www.example.com/web2 -> 서비스D -> 파드
+
+
+L4: NodePort, LB / L7: Ingress(HTTP/HTTPS)
+인그레스 리소스는 L7(HTTP/HTTPS)에서 작동하며, 세션 쿠키 기반의 세션 어피니티를 가지고 있다.
+
+
+
+
+www.example.com 사이트에 가고 싶다고 가정해보자.
+
+
+인그레스 종류
+- ingress-nginx
+
+https://github.com/kubernetes/ingress-nginx      - kubernetes 에서 관리하는 인그레스(좀 더 많이 사용)
+https://docs.nginx.com/nginx-ingress-controller/ - nginx 측에서 관리하는 인그레스
+https://blog.naver.com/alice_k106/221502890249
+https://kubernetes.io/ko/docs/concepts/services-networking/ingress-controllers/
+
+##### ingress-nginx ingress controller 설치
+- 지원하는 버전들을 확인해봐야 한다. - 1.22 버전이므로 v1.4.0의 인그레스 설치
+- https://github.com/kubernetes/ingress-nginx/tree/main/deploy/static/provider/baremetal
+
+vagrant@kube-control1:~/cccr/work/20230215$ k get svc -n ingress-nginx
+NAME                                 TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
+ingress-nginx-controller             NodePort    10.103.144.211   <none>        80:30971/TCP,443:32376/TCP   72s
+ingress-nginx-controller-admission   ClusterIP   10.107.52.97     <none>        443/TCP                      72s
+vagrant@kube-control1:~/cccr/work/20230215$ k get pod -n ingress-nginx
+NAME                                        READY   STATUS      RESTARTS   AGE
+ingress-nginx-admission-create-knbrk        0/1     Completed   0          86s
+ingress-nginx-admission-patch-5mpz4         0/1     Completed   0          86s
+ingress-nginx-controller-6f9544b86b-6f5gr   1/1     Running     0          86s
+
+실행이 되고 난 후 종료가 된 것이다. 
+(create, patch)는 ingress를 설치하고 종료된 Pod로 정상적으로 ingress가 설치된 거로 볼 수 있다.
+
+##### ingress-nginx-controller-admission 파드
+인그레스 트래픽 처리에 필요한 기능을 수행하는 파드
+
+##### igress-nginx-controller
++ 쿠버네티스에서 환경에 따라 ingress 설치 방법이 다르고, manifest 파일이 다른데,
+  베어메탈(로컬) 환경에서는 ingress를 NodePort 오브젝트로 구현한다.
+- 그렇다면 NodePort로 구현한 Ingress는 어떻게 동작할까?
+  curl http://<>
+
+실제로 트래픽을 받아 처리하는 서비스
+
+curl http://<Node IP>:<Node Port> 시 접속이 되지 않는다.
+
+ingress-nginx-controller-admission pod vs. ingress-nginx-controller
+
+$ k get svc -n ingress-nginx
+
+kubectl apply vs. edit vs. patch
+
+
+온프레미스 환경에서 인그레스를 사용하는 방법 중 하나
+
+(before)
+vagrant@kube-control1:~/cccr/work/20230215$ k get svc -n ingress-nginx
+NAME                                 TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                      AGE
+ingress-nginx-controller             NodePort    10.103.144.211   <none>        80:30971/TCP,443:32376/TCP   72s
+ingress-nginx-controller-admission   ClusterIP   10.107.52.97     <none>        443/TCP                      72s
+
+$ k edit services ingress-nginx-controller -n ingress-nginx
+ 22 spec:
+ 23   clusterIP: 10.103.144.211
+ 24   clusterIPs:
+ 25   - 10.103.144.211
+ 26   externalIPs:
+ 27   - 192.168.56.21
+ 28   - 192.168.56.22
+ 29   - 192.168.56.23
+ 30   externalTrafficPolicy: Cluster
+ 31   internalTrafficPolicy: Cluster
+ 32   ipFamilies:
+ 33   - IPv4
+
+externalIPs 필드에 다음과 같이 Node들의 IP를 적어준다.
+
+(after)
+vagrant@kube-control1:~/cccr/work/20230215$ k get svc -n ingress-nginx
+NAME                                 TYPE        CLUSTER-IP       EXTERNAL-IP                                 PORT(S)                      AGE
+ingress-nginx-controller             NodePort    10.103.144.211   192.168.56.21,192.168.56.22,192.168.56.23   80:30971/TCP,443:32376/TCP   13m
+ingress-nginx-controller-admission   ClusterIP   10.107.52.97     <none>                                      443/TCP                      13m
+
+인그레스를 NodePort를 가지고 운영하는 방법.
+각 노드들의 IP를 수동(edit)으로 ExternalIP에 지정해준다.
+
+---
+
+쿠버네티스 클러스터 상에서
+1. 단일 인그레스 컨트롤러 운영
+2. 다중 인그레스 컨트롤러 운영
+
+다중 인그레스 컨트롤러를 사용하기 위해 ingress classes라는 오브젝트가 생겼다.
+
+
+인그레스 컨트롤러를 동시에 사용할 수 있다.
+동시에 사용한다면 누가 어떤 룰을 처리할 것인가에 대한 부분도 고려해야 한다.
+또한 default ingress controller를 지정하는 부분도 생겨난다.
+
+vagrant@kube-control1:~/cccr/work/20230215$ k get ingressclasses
+NAME    CONTROLLER             PARAMETERS   AGE
+nginx   k8s.io/ingress-nginx   <none>       17m
+vagrant@kube-control1:~/cccr/work/20230215$ k get ingressclasses -o wide
+NAME    CONTROLLER             PARAMETERS   AGE
+nginx   k8s.io/ingress-nginx   <none>       18m
+vagrant@kube-control1:~/cccr/work/20230215$ k describe ingressclasses 
+Name:         nginx
+Labels:       app.kubernetes.io/component=controller
+              app.kubernetes.io/instance=ingress-nginx
+              app.kubernetes.io/name=ingress-nginx
+              app.kubernetes.io/part-of=ingress-nginx
+              app.kubernetes.io/version=1.6.4
+Annotations:  <none>
+Controller:   k8s.io/ingress-nginx
+Events:       <none>
+vagrant@kube-control1:
+
+---
+
+##### nginx라는 IngressClass 오브젝트를 edit
+vagrant@kube-control1:~/cccr/work/20230215$ k edit ingressclasses nginx
+
+# Please edit the object below. Lines beginning with a '#' will be ignored,
+# and an empty file will abort the edit. If an error occurs while saving this file will be
+# reopened with the relevant failures.
+#
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"networking.k8s.io/v1","kind":"IngressClass","metadata":{"annotations":{},"labels":{"app.kubernetes.io/component":"controller","app.kubernetes.io/instance":"ingress-nginx","app.kubernetes.io/name":"ingress-nginx","app.kubernetes.io/part-of":"ingress-nginx","app.kubernetes.io/version":"1.6.4"},"name":"nginx"},"spec":{"controller":"k8s.io/ingress-nginx"}}
+  creationTimestamp: "2023-02-15T08:36:14Z"
+  generation: 1
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/instance: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
+    app.kubernetes.io/version: 1.6.4
+  name: nginx
+  resourceVersion: "239853"
+  uid: 045cc688-1c8a-4e7f-923b-9a0c897e63e6
+spec:
+  controller: k8s.io/ingress-nginx
+
+
+default ingress controller로 사용하기 위하여 annotation을 추가로 지정하자.
+vagrant@kube-control1:~/cccr/work/20230215$ k edit ingressclasses nginx
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: true
+
+
+
+
+
+
+
+
+
+
