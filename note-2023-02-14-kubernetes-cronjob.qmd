@@ -1,0 +1,15 @@
+
+cronjob.
+cronjob.spec.concurrencyPolicy
+
+cronjob.spec.concurrencyPolicy: 동시 실행 정책
+- Allow: (기본) 잡이 동시에 실행될 수 있음
+- Forbid : 동시 실행 금지. 잡이 아직 완ㄹ되지 않은 경우 다름 잡은 건너뜀
+- Replace : 현재 실행 중인 잡을 취소하고 새 잡으로 교체
+
+startingDeadlineSeconds: 100초 / concurrencyPolicy: Allow
+마지막 스케줄링 시점 이후 100초까지 놓친 잡이 있으면
+해당 잡을 실행시키게 된다. 또한 concurrencyPolicy가 Forbid이면, 
+이전에 놓친 잡을 실행하지 않늗다.
+
+
